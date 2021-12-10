@@ -151,6 +151,40 @@ def distributed_mm(w, x, split=1):
     results.append(wx)
   return torch.cat(results, dim=1) if len(results) > 1 else results[0]
 
+class AllToAll(torch.autograd.Function):
+
+  @staticmethod
+  def forward(ctx, inputs, split_dimension, concat_dimension, split_count, groups=None):
+    ctx.split_dimension = split_dimension
+    ctx.concat_dimension = concat_dimension
+    ctx.split_count = split_count
+    ctx.groups = groups
+    output = xm.all_to_all(inputs, split_dimension, concat_dimension, split_count, groups)
+    ctx.save_for_backward(input, output)
+    return output
+
+  @staticmethod
+  def backward(ctx, grad_outputs):
+    return AllToAll.apply(grad_outputs, ctx.concat_dimension, ctx.split_dimension, ctx.split_count, ctx.groups), None, None, None, None
+
+def all_to_all(input, split_dimension, concat_dimension, split_count, groups=None):
+  """Performs an all-to-all distributed operation on the input tensor.
+  This is the same as `xm.all_to_all()` but supports autograd differentiation.
+  Args:
+    input: A tensor of any dimension.
+    split_dimension: The dimension to split the input tensor along.
+    concat_dimension: The dimension to concatenate the output tensors along.
+    split_count: The number of chunks to split the input tensor into.
+    groups (list, optional): A list of list, representing the replica groups for
+      the `all_to_all()` operation. Example: `[[0, 1, 2, 3], [4, 5, 6, 7]]`
+        defines two groups, one with the `[0, 1, 2, 3]` replicas and one with
+        the `[4, 5, 6, 7]` replicas. If `None` there will be only one group with
+        all the replicas in it.
+  Returns:
+    The result torch.Tensor of the all_to_all() operation
+  """
+  return AllToAll.apply(input, split_dimension, concat_dimension, split_count, groups)
+
 
 class SyncBatchNorm(torch.nn.Module):
 
